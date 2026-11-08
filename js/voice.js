@@ -36,7 +36,7 @@ function startRec() {
   try { rec && rec.abort(); } catch (e) {}   // never leave an older session running underneath
   const me = rec = new SR();   // handlers of an older session (after stop then quick start) check "me !== rec" and ignore themselves
   me.lang = 'en-NZ'; me.continuous = true; me.interimResults = true; me.maxAlternatives = 1;
-  me.onstart = () => { if (me === rec) { alive = true; st.textContent = 'Listening... Speak clearly.'; } };
+  me.onstart = () => { if (me === rec) { alive = true; st.textContent = 'Listening...'; } };
   me.onerror = e => {
     if (me !== rec) return;
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
