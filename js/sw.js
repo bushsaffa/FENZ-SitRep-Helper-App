@@ -1,4 +1,4 @@
-const CACHE = 'sitrep-v5';   // change the number every time you update the app
+const CACHE = 'sitrep-v6';   // change the number every time you update the app
 const FILES = ['./', 'index.html', 'manifest.json', 'css/styles.css',
   'js/helpers.js','js/config.js','js/vocab.js','js/patients.js','js/extract.js',
   'js/script-builder.js','js/ui.js','js/timer.js','js/reports.js','js/voice.js','js/main.js',

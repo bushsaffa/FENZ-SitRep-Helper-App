@@ -1,6 +1,6 @@
 {
-  "name": "FENZ SitRep",
-  "short_name": "SitRep",
+  "name": "SitRep Helper",
+  "short_name": "SitRep Helper",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
