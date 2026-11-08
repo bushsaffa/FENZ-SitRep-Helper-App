@@ -9,15 +9,16 @@ const SLOTS = {
   length:     { label: 'Fire length (metres)' },
   width:      { label: 'Fire width (metres)' },
   area:       { label: 'Area (hectares), if not length by width' },
-  fuel:       { label: 'Fuel', opts: ['Grass', 'Scrub', 'Forestry'], multi: true },
+  fuel:       { label: 'Fuel', opts: ['Grass', 'Scrub', 'Forestry', 'Hedge'], multi: true },
   terrain:    { label: 'Terrain', opts: ['Flat', 'Rolling', 'Steep'] },
   behav:      { label: 'Fire behaviour', opts: ['Low', 'Moderate', 'High', 'Extreme'] },
   ros:        { label: 'Rate of spread', opts: ['Slow', 'Moderate', 'Rapid'] },
   flameh:     { label: 'Flame height (metres)' },
   winddir:    { label: 'Wind from the...', opts: ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest', 'West', 'Northwest'] },
-  windspeed:  { label: 'Wind speed (knots)', opts: ['5', '10', '15', '20', '25'] },
+  windspeed:  { label: 'Wind speed (km/h)', opts: ['10', '20', '30', '40', '50'] },
   local:      { label: 'Local weather factors (gusting, wind change, temperature...)' },
-  status:     { label: 'Fire status', opts: ['Under control', 'Not under control'] },
+  status:     { label: 'Fire control', opts: ['Under control', 'Not under control'] },
+  contain:    { label: 'Fire containment', opts: ['Contained', 'Not contained'] },
   spots:      { label: 'Spot fires observed', opts: ['No', '1', '2', '3'] },
   threat:     { label: 'Values at risk (property, forestry, livestock, buildings, vehicles...)', opts: ['None', 'Property', 'Forestry', 'Livestock', 'Infrastructure', 'Buildings', 'Vehicles'], multi: true },
   access:     { label: 'Access (transport, directions, references)', opts: ['Via vehicle', 'On foot', 'Via helicopter'] },
@@ -86,14 +87,14 @@ const TYPES = {
     label: 'VEGETATION', name: 'Vegetation', pat: false,
     groups: [
       ['Who and where', ['role', 'location', 'mapref', 'dist', 'landmark']],
-      ['Fire', ['length', 'width', 'area', 'fuel', 'terrain', 'behav', 'ros', 'flameh', 'spots', 'status']],
+      ['Fire', ['length', 'width', 'area', 'fuel', 'terrain', 'behav', 'ros', 'flameh', 'spots', 'status', 'contain']],
       ['Risk', ['threat', 'hazards']],
       ['Environment', ['winddir', 'windspeed', 'local', 'access']],
       ['Actions', ['personnel', 'equipment', 'control', 'crewpos', 'supprob', 'ctrlprob']],
       ['Needs', ['resources', 'crewcond', 'safety', 'crewstatus']]
     ],
     vital: ['location', 'length', 'width', 'fuel', 'status', 'threat', 'winddir', 'resources'],
-    alt: { length: ['area'], width: ['area'] }   // a vital field is not "missing" if one of these is given instead
+    alt: { length: ['area'], width: ['area'], status: ['contain'] }   // a vital field is not "missing" if one of these is given instead (control OR containment is enough)
   },
   structure: {
     label: 'STRUCTURE', name: 'Structure', pat: true,

@@ -7,7 +7,7 @@ const TENS = 'twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety';
 const NP = '(?:\\d+(?:\\.\\d+)?|(?:a|' + NUMW + ')\\s+hundred(?:\\s+and\\s+(?:' + TENS + ')(?:[\\s-](?:' + NUMW + '))?)?|(?:' + TENS + ')(?:[\\s-](?:' + NUMW + '))?|' + ONES + ')';
 const N = '\\b' + NP + '\\b';
 const COUNT = '(?:\\d+|' + NUMW + ')';
-const DIR = 'north[\\s-]?west|north[\\s-]?east|south[\\s-]?west|south[\\s-]?east|north|south|east|west';
+const DIR = 'north[\\s-]?west|north[\\s-]?east|south[\\s-]?west|south[\\s-]?east|north|south|east|west|nw|ne|sw|se';
 
 const UNITS = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16, seventeen:17, eighteen:18, nineteen:19 };
 const TENV = { twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 };
@@ -30,7 +30,8 @@ const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 const title = s => s.replace(/(^|\s)[a-z]/g, c => c.toUpperCase());
 const joinList = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : (a[0] || '');
 const an = w => (/^[aeiou]/i.test(w) ? 'an ' : 'a ') + w;
-const nd = s => s.toLowerCase().replace(/[\s-]/g, '');
+// Direction as one lowercase word. Abbreviations are spelled out: "nw" -> "northwest"
+const nd = s => { const d = s.toLowerCase().replace(/[\s-]/g, ''); return ({ nw: 'northwest', ne: 'northeast', sw: 'southwest', se: 'southeast' })[d] || d; };
 const numw = v => (/^\d+$/.test(v) && +v <= 10) ? WORDS[+v] : v;
 const isOne = v => ['1', 'one', 'a', 'an', 'single'].includes(String(v).toLowerCase());
 const pl = v => isOne(v) ? '' : 's';

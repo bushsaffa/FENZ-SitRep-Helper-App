@@ -21,7 +21,9 @@ function extract(raw, type) {
   if ((m = L(/\b(crew leader|officer in charge|sector supervisor|incident controller)\b/gi))) o.role = m[1].toLowerCase();
 
   // Dimensions (fire for vegetation, building for structure)
-  if ((m = R(new RegExp('(' + N + ')\\s*(?:m|metres?|meters?)?\\s*(?:by|x|×)\\s*(' + N + ')', 'gi')))) {
+  // "100 by 50", "100 x 50" and "100x50". There is no word boundary around the x in "100x50", so N can't be used here:
+  // a boundary is accepted after the first number OR straight before an x or m/metres unit, and the second number may carry a unit too.
+  if ((m = R(new RegExp('\\b(' + NP + ')(?:\\b|(?=[x×]|m\\b|metres?\\b|meters?\\b))\\s*(?:m|metres?|meters?)?\\s*(?:by|x|×)\\s*(' + NP + ')(?:\\s*(?:m|metres?|meters?)\\b|\\b)', 'gi')))) {
     const a = String(toNum(m[1])), b = String(toNum(m[2]));
     if (type === 'structure') { o.blength = a; o.bwidth = b; } else { o.length = a; o.width = b; }
   }
@@ -47,6 +49,7 @@ function extract(raw, type) {
     if (/\b(?:grass|grassland|pasture|tussock)\b/i.test(rest)) fuels.push('grass');
     if (/\b(?:scrub|gorse|manuka|kanuka|broom)\b/i.test(rest)) fuels.push('scrub');
     if (/\b(?:forestry|forest|pine|pines|plantation|radiata)\b/i.test(rest)) fuels.push('forestry');
+    if (/\b(?:hedge|hedges|hedgerow|hedgerows)\b/i.test(rest)) fuels.push('hedge');
     if (fuels.length) o.fuel = fuels.join(', ');
     if ((m = R(/\b(flat|rolling|steep)\b/gi))) o.terrain = m[1].toLowerCase();
 
@@ -65,11 +68,23 @@ function extract(raw, type) {
       || R(new RegExp('\\b(' + DIR + ')(?:erly|ern|er)?\\s+winds?\\b', 'gi'))
       || R(new RegExp('\\bwinds?\\s+(?:is\\s+|are\\s+)?(' + DIR + ')(?:erly|ern|er)?\\b', 'gi'));
     if (m) o.winddir = nd(m[1]);
-    if ((m = L(new RegExp('(' + N + ')\\s*(?:knots?|kts?|kn)\\b', 'gi')))) o.windspeed = String(toNum(m[1]));
+    // Wind speed is reported in km/h: "25km/h", "25 kph", "25 kilometres per hour". (No word boundary before the unit: "25km/h" has none.)
+    if ((m = L(new RegExp('\\b(' + NP + ')\\s*(?:km\\s*/\\s*h(?:r|our)?|kmh|kph|k\\s*/\\s*h|(?:km|kilomet(?:re|er)s?)\\s*(?:per|an|a)\\s*hour)(?![a-z])', 'gi')))) o.windspeed = String(toNum(m[1]));
 
-    // Fire status: any wording (contained, uncontained, controlled...) maps to the FENZ terms under control / not under control
-    if (/\b(?:uncontained|un-contained|uncontrolled|out of control|getting away|escalating|no longer (?:under control|contained|controlled)|(?:not|isn'?t|hasn'?t|haven'?t|wasn'?t)\s+(?:yet\s+|fully\s+|been\s+|being\s+)*(?:contained|controlled|under control))\b/i.test(t)) o.status = 'not under control';
-    else if (/\b(?:contained|under control|controlled)\b/i.test(t)) o.status = 'under control';
+    // Local weather factors: humidity and temperature ("low humidity", "high temperatures", "humidity is low")
+    const lw = [], addLw = x => { if (!lw.includes(x)) lw.push(x); };
+    const noun = w => /^humid/i.test(w) ? 'humidity' : /s$/i.test(w) ? 'temperatures' : 'temperature';
+    for (const mm of t.matchAll(/\b(?:(very|extremely)\s+)?(low|high)\s+(?:relative\s+)?(humidity|temperatures?|temps?)\b/gi)) addLw((mm[1] ? mm[1].toLowerCase() + ' ' : '') + mm[2].toLowerCase() + ' ' + noun(mm[3]));
+    for (const mm of t.matchAll(/\b(?:relative\s+)?(humidity|temperatures?|temps?)\s+(?:is\s+|are\s+|of\s+)?(?:(very|extremely)\s+)?(low|high)\b/gi)) addLw((mm[2] ? mm[2].toLowerCase() + ' ' : '') + mm[3].toLowerCase() + ' ' + noun(mm[1]));
+    if (lw.length) o.local = lw.join(', ');
+
+    // Control and containment are two separate things, and either may be said alone:
+    // "uncontrolled but contained", "controlled and uncontained", "not controlled or contained"...
+    const NOT = "(?:not|isn'?t|hasn'?t|haven'?t|wasn'?t|never)\\s+(?:(?:yet|fully|been|being|properly)\\s+)*", CTRL = '(?:controlled|under control)';
+    if (new RegExp('\\b(?:uncontrolled|out of control|getting away|escalating|no longer ' + CTRL + '|' + NOT + '(?:contained\\s+(?:or|nor)\\s+)?' + CTRL + ')\\b', 'i').test(t)) o.status = 'not under control';
+    else if (new RegExp('\\b' + CTRL + '\\b', 'i').test(t)) o.status = 'under control';
+    if (new RegExp('\\b(?:uncontained|un-contained|no longer contained|' + NOT + '(?:' + CTRL + '\\s+(?:or|nor)\\s+)?contained)\\b', 'i').test(t)) o.contain = 'not contained';
+    else if (/\bcontained\b/i.test(t)) o.contain = 'contained';
 
     // Spot fires
     if ((m = L(new RegExp('\\b(\\d+|no|nil|zero|a|an|' + NUMW + ')\\s+spot\\s*fires?\\b', 'gi')))) {
@@ -105,6 +120,10 @@ function extract(raw, type) {
   // Statement-level fields
   const resList = [];
   let resNil = false;
+  // "Hay shed in possible danger", "the house is at risk", "the barn could be threatened": the thing at risk comes first
+  const AT_RISK = /([^,;]+?)\s+(?:(?:is|are|could be|may be|might be|looks to be|appears to be)\s+)?(?:in|at|under)\s+(?:(?:possible|potential|immediate|imminent|serious|some|significant|great|real|direct|any|further)\s+)*(?:danger|risk|threat|jeopardy)\b/i;
+  const THREATENED = /([^,;]+?)\s+(?:is|are|could be|may be|might be)\s+(?:being\s+|possibly\s+|potentially\s+)?(?:threatened|endangered)\b/i;
+  const NEG_RISK = /\b(?:no|not|nil|without|never)\b[^.;]{0,15}\b(?:danger|risk|threat)/i;   // "no danger to the house" must not become a threat
   const CREW_MOVING = /\b(?:we|i|crews?|appliances?|trucks?|units?|ambulance|police)(?:'re|'m|'ve)?\b[^.;]{0,20}\b(?:heading|moving|running|approaching|advancing)\b/i;
   // "No additional resources", "nothing further required" count; "no further hazards" does not
   const NO_RES = /\b(?:no|nil|nothing)\s+(?:(?:additional|further|more|other)\s+)?(?:resources?|appliances?|units?|crews?|help|assistance|support|backup)\b|\b(?:no|nothing)\s+(?:additional|further|more|else)\s+(?:is\s+)?(?:needed|required|necessary)\b/i;
@@ -113,9 +132,16 @@ function extract(raw, type) {
     if (/\bno (?:immediate )?(?:threats?|values at risk|exposures?)\b/i.test(s)) o.threat = 'nil';
     else {
       m = s.match(/\b(?:spreading|heading|moving|running|burning|advancing|approaching)\s+(?:quickly\s+|slowly\s+)?(?:towards?|to|into)\s+(.+)$/i)
-        || s.match(/\b(?:threatening|threat to|risk to|endangering|exposing)\s+(.+)$/i);
+        || s.match(/\b(?:threatening|threat to|risk to|danger to|endangering|exposing)\s+(.+)$/i);
+      let v = null;
       // "we're heading to the fire" is the crew moving, not the fire threatening something
-      if (m && !CREW_MOVING.test(s)) { const v = clean(m[1].split(/\s*,\s*(?=(?:spot|no|we|it|the|crew|wind|fire|access|need|hazards?)\b)/i)[0]); if (v && !DIRONLY.test(v.replace(/^(?:the|a|an)\s+/i, ''))) o.threat = v; }
+      if (m && !CREW_MOVING.test(s) && !NEG_RISK.test(s)) v = clean(m[1].split(/\s*,\s*(?=(?:spot|no|we|it|the|crew|wind|fire|access|need|hazards?)\b)/i)[0]);
+      else if (!NEG_RISK.test(s) && (m = s.match(AT_RISK) || s.match(THREATENED))) {
+        // Drop anything said before it ("fire uncontrolled and uncontained hay shed in danger") and lower-case the capital that only came from starting a sentence
+        v = clean(m[1].replace(/^.*\b(?:uncontrolled|uncontained|under control|contained|controlled)\s+(?:and\s+(?:uncontrolled|uncontained)\s+)?/i, '').replace(/^(?:and|also|plus|but|so|with)\s+/i, ''));
+        v = v.charAt(0).toLowerCase() + v.slice(1);
+      }
+      if (v && !DIRONLY.test(v.replace(/^(?:the|a|an)\s+/i, ''))) o.threat = v;
     }
     // Access
     if ((m = s.match(/\b(?:only way in|way in|access)\s+(?:is\s+(?:only\s+)?|will be\s+)?(.+)$/i))) {

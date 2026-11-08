@@ -80,15 +80,19 @@ function buildScript(type, g, pats) {
     else if (terr) add('The fire is on ' + terr + ' terrain.');
 
     const wd = v('winddir'), ws = v('windspeed'), beh = v('behav');
-    const wind = wd ? 'wind from the ' + wd + (ws ? ' at approximately ' + ws + ' knots' : '') : ws ? 'wind speed approximately ' + ws + ' knots' : '';
+    const wind = wd ? 'wind from the ' + wd + (ws ? ' at approximately ' + ws + ' km/h' : '') : ws ? 'wind speed approximately ' + ws + ' km/h' : '';
     add(beh ? 'Fire behaviour is ' + beh + (wind ? ', with ' + wind : '') + '.' : wind ? cap(wind) + '.' : '');
     const rf = [has('ros') && 'rate of spread is ' + v('ros'), has('flameh') && 'flame height is approximately ' + v('flameh') + ' metres'].filter(Boolean);
     add(rf.length ? cap(rf.join(' and ')) + '.' : '');
-    add(has('local') ? 'Local conditions: ' + v('local') + '.' : '');
+    add(has('local') ? 'Local conditions include ' + lst('local') + '.' : '');
 
-    const sp = v('spots').toLowerCase(), stt = v('status');
+    // Control and containment are separate: "not under control but contained", "under control and contained",
+    // "not under control and not contained"... "but" when one is good news and the other is not, "and" when they agree.
+    const sp = v('spots').toLowerCase(), ctl = v('status').toLowerCase(), con = v('contain').toLowerCase();
     const spot = sp ? ((sp === 'no' || sp === 'nil') ? 'no spot fires' : numw(sp) + ' spot fire' + pl(sp)) + ' observed' : '';
-    add(stt ? 'The fire is currently ' + stt + (spot ? ', with ' + spot : '') + '.' : spot ? cap(spot) + '.' : '');
+    const bad = x => /^not\b/.test(x);
+    const state = ctl && con ? ctl + (bad(ctl) === bad(con) ? ' and ' : ' but ') + con : ctl || con;
+    add(state ? 'The fire is currently ' + state + (spot ? ', with ' + spot : '') + '.' : spot ? cap(spot) + '.' : '');
 
     add(nl('threat') ? 'There is no immediate threat to property or other values.' : has('threat') ? 'Values at risk include ' + lst('threat') + '.' : '');
     const acc = v('access');
