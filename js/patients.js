@@ -8,6 +8,8 @@ function patientFields(s) {
     const g = (m[3] || '').toLowerCase();
     o.desc = (m[1] ? 'approximately ' : '') + toNum(m[2]) + '-year-old' + (g ? ' ' + ({ man: 'male', woman: 'female' }[g] || g) : '');
   }
+  // Shorthand: "96YOM", "40yof"
+  if (!o.desc && (m = s.match(/\b(\d{1,3})\s*(yom|yof)\b/i))) o.desc = m[1] + '-year-old ' + (/m$/i.test(m[2]) ? 'male' : 'female');
   const pc = [];
   // "not conscious" means unconscious and "semi-conscious" is neither; only a bare "conscious" is conscious
   if (/\bunconscious\b|\b(?:not|isn'?t|no longer|non)[\s-]+(?:\w+\s+)?conscious\b/i.test(s)) pc.push('unconscious');

@@ -50,8 +50,10 @@ function extract(raw, type) {
     if (/\b(?:scrub|gorse|manuka|kanuka|broom)\b/i.test(rest)) fuels.push('scrub');
     if (/\b(?:forestry|forest|pine|pines|plantation|radiata)\b/i.test(rest)) fuels.push('forestry');
     if (/\b(?:hedge|hedges|hedgerow|hedgerows)\b/i.test(rest)) fuels.push('hedge');
+    if (/\bshelter\s?belts?\b/i.test(rest)) fuels.push('shelter belt');
+    if (/\b(?:native\s+)?bush\b/i.test(rest)) fuels.push('native bush');
     if (fuels.length) o.fuel = fuels.join(', ');
-    if ((m = R(/\b(flat|rolling|steep)\b/gi))) o.terrain = m[1].toLowerCase();
+    if ((m = R(/\b(flat|rolling|steep|hilly)\b/gi))) o.terrain = m[1].toLowerCase();
 
     // Fire behaviour, rate of spread, flame height
     if ((m = R(/\b(low|moderate|high|extreme)\s+(?:fire\s+)?behaviou?r\b/gi) || R(/\bbehaviou?r\s+(?:is\s+|of\s+)?(?:currently\s+)?(low|moderate|high|extreme)\b/gi))) o.behav = m[1].toLowerCase();
@@ -62,14 +64,19 @@ function extract(raw, type) {
     if ((m = R(new RegExp('\\bflames?(?:\\s+height)?\\s+(?:is\\s+|are\\s+|of\\s+|up to\\s+|about\\s+|approximately\\s+)*(' + N + ')\\s*(?:m|metres?|meters?)\\b', 'gi'))
           || R(new RegExp('(' + N + ')\\s*(?:m|metre|meter)s?\\s+(?:high\\s+)?flames\\b', 'gi')))) o.flameh = String(toNum(m[1]));
 
+    if (!o.behav && /\bcrowning\b/i.test(rest)) o.behav = 'crowning';
+
     // Wind. The gap between "wind" and "from" must not contain the crew ("wind is light, crew working from the west flank").
     m = /\bwinds?\b/i.test(t) ? R(new RegExp('\\b(?:sorry|correction|i mean|make that|actually)\\s*,?\\s*(?:it\'s\\s+)?(?:from\\s+)?(?:the\\s+)?(' + DIR + ')(?:erly|ern|er)?\\b', 'gi')) : null;
     m = m || R(new RegExp('\\bwinds?\\b(?:(?!\\b(?:crew|crews|we|i)\\b)[^.;]){0,45}?\\bfrom\\s+(?:the\\s+)?(' + DIR + ')(?:erly|ern|er)?\\b', 'gi'))
       || R(new RegExp('\\b(' + DIR + ')(?:erly|ern|er)?\\s+winds?\\b', 'gi'))
-      || R(new RegExp('\\bwinds?\\s+(?:is\\s+|are\\s+)?(' + DIR + ')(?:erly|ern|er)?\\b', 'gi'));
+      || R(new RegExp('\\bwinds?\\s+(?:is\\s+|are\\s+)?(?:(?:very|light|strong|moderate|gusty|gale)\\s+)?(' + DIR + ')(?:erly|ern|er)?\\b', 'gi'));
     if (m) o.winddir = nd(m[1]);
     // Wind speed is reported in km/h: "25km/h", "25 kph", "25 kilometres per hour". (No word boundary before the unit: "25km/h" has none.)
     if ((m = L(new RegExp('\\b(' + NP + ')\\s*(?:km\\s*/\\s*h(?:r|our)?|kmh|kph|k\\s*/\\s*h|(?:km|kilomet(?:re|er)s?)\\s*(?:per|an|a)\\s*hour)(?![a-z])', 'gi')))) o.windspeed = String(toNum(m[1]));
+    // No number given: "strong northerly", "light wind", "nil wind", "wind is strong"
+    else if ((m = L(/\b(nil|no|light|moderate|strong|calm)\s+(?:(?:north|south)[\s-]?(?:east|west)?|east|west)?(?:erly|ern)?\s*winds?\b/gi)
+            || L(/\bwinds?\s+(?:is\s+|are\s+)?(?:currently\s+)?(nil|light|moderate|strong|calm)\b/gi))) o.windspeed = m[1].toLowerCase() === 'no' ? 'nil' : m[1].toLowerCase();
 
     // Local weather factors: humidity and temperature ("low humidity", "high temperatures", "humidity is low")
     const lw = [], addLw = x => { if (!lw.includes(x)) lw.push(x); };
@@ -129,9 +136,11 @@ function extract(raw, type) {
   const NO_RES = /\b(?:no|nil|nothing)\s+(?:(?:additional|further|more|other)\s+)?(?:resources?|appliances?|units?|crews?|help|assistance|support|backup)\b|\b(?:no|nothing)\s+(?:additional|further|more|else)\s+(?:is\s+)?(?:needed|required|necessary)\b/i;
   for (const s of segs) {
     // Values at risk / exposures
-    if (/\bno (?:immediate )?(?:threats?|values at risk|exposures?)\b/i.test(s)) o.threat = 'nil';
+    if (/\bno (?:immediate |other |further )?(?:threats?|risks?|values at risk|exposures?|assets? at risk)\b|\bnothing (?:else )?(?:is )?(?:at risk|threatened)\b/i.test(s)) o.threat = 'nil';
     else {
-      m = s.match(/\b(?:spreading|heading|moving|running|burning|advancing|approaching)\s+(?:quickly\s+|slowly\s+)?(?:towards?|to|into)\s+(.+)$/i)
+      m = s.match(/\b(?:only |main )?exposures?\s+(?:is|are|being)\s+(.+)$/i)
+        || s.match(/\bprotecting\s+(?:the\s+)?exposures?\s+(?:of\s+)?(.+)$/i)
+        || s.match(/\b(?:spreading|heading|moving|running|burning|advancing|approaching)\s+(?:quickly\s+|slowly\s+)?(?:towards?|to|into)\s+(.+)$/i)
         || s.match(/\b(?:threatening|threat to|risk to|danger to|endangering|exposing)\s+(.+)$/i);
       let v = null;
       // "we're heading to the fire" is the crew moving, not the fire threatening something
@@ -148,6 +157,8 @@ function extract(raw, type) {
       const v = clean(m[1]);
       if (v && !/^(?:issues?|problems?)\b/i.test(v)) o.access = v;
     }
+    // Registration number (car fire)
+    if (want('rego') && (m = s.match(/\b(?:rego|registration(?:\s+number)?|number\s*plate)\s*(?:is\s+)?:?\s*(.+)$/i))) { const r = clean(m[1]); if (r) o.rego = r.toUpperCase(); }
     // Control lines (vegetation)
     if ((m = s.match(/\b(?:establishing|setting up|constructing|cutting|putting in|building|forming)\s+(.+)$/i))) {
       const v = clean(m[1].replace(/\s+(?:with|using)\b.*$/i, ''));
@@ -198,6 +209,12 @@ function extract(raw, type) {
   if (/\blow on fuel\b/i.test(t)) cc.push('low on fuel');
   if (cc.length) o.crewcond = cc.join(', ');
 
+  // Fire conditions (structure and car fire)
+  if ((type === 'structure' || type === 'carfire') && (m = L(/\b(fully involved|well involved|smoke showing|flames showing|visible flames|heavy smoke|fire showing)\b/gi))) {
+    const w = m[1].toLowerCase();
+    o.strcond = w === 'visible flames' || w === 'fire showing' ? 'flames showing' : w === 'heavy smoke' ? 'smoke showing' : w;
+  }
+
   // ----- Structure -----
   if (type === 'structure') {
   if ((m = L(/\b(single|one|two|double|three|\d)[\s-]*(?:storey|story|level)\b/gi))) {
@@ -207,10 +224,6 @@ function extract(raw, type) {
   let best = null;
   for (const [re, lab] of STRTYPES) { const mm = rest.match(re); if (mm && (!best || mm.index < best.i)) best = { i: mm.index, lab }; }
   if (best) o.strtype = best.lab;
-  if ((m = L(/\b(fully involved|well involved|smoke showing|flames showing|visible flames|heavy smoke|fire showing)\b/gi))) {
-    const w = m[1].toLowerCase();
-    o.strcond = w === 'visible flames' || w === 'fire showing' ? 'flames showing' : w === 'heavy smoke' ? 'smoke showing' : w;
-  }
   const PART = '(?:roof\\s?space|roof|windows?|eaves|vents?|doors?|chimney|walls?|front|rear|back|side|garage|building)';
   const smokeRe = new RegExp('smoke\\s+(?:is\\s+)?(?:issuing|coming|pouring|venting|showing)\\s+from\\s+(?:the\\s+)?(' + PART + '(?:(?:\\s*,\\s*|\\s+and\\s+)(?:the\\s+)?' + PART + ')*)\\b', 'gi');
   if ((m = L(smokeRe))) o.smokefrom = m[1].trim();
@@ -220,7 +233,7 @@ function extract(raw, type) {
   else if (/\bspreading through\b/i.test(t)) o.spread = 'spreading through the structure';
   else if (/\binvolving the roof\b/i.test(t)) o.spread = 'involving the roof';
   if ((m = L(/\b(offensive|defensive)\b/gi))) o.mode = m[1].toLowerCase();
-  if ((m = L(new RegExp('\\b(' + COUNT + ')\\s+(?:hose\\s?lines?|hoses|jets?|branches)\\b', 'gi')))) o.hoselines = m[1].toLowerCase();
+  if ((m = L(new RegExp('\\b(' + COUNT + ')\\s*x?\\s+(?:\\w+\\s+){0,2}?(?:hose\\s?lines?|hoses|jets?|branches|deliver(?:y|ies))\\b', 'gi')))) o.hoselines = m[1].toLowerCase();
 
   // Occupants (structure)
   if (/\b(?:no occupants|nobody (?:is )?inside|no one (?:is )?inside|building (?:is )?empty|unoccupied)\b/i.test(t)) o.occupants = 'nil';
@@ -232,7 +245,7 @@ function extract(raw, type) {
   }
 
   // ----- MVA / medical -----
-  if (type === 'mva') {
+  if (type === 'mva' || type === 'carfire') {
     const VN = 'vehicles?|cars?|bikes?|trucks?|utes?|vans?|sedans?|suvs?|hatchbacks?|wagons?|buses|bus|motorbikes?|motorcycles?|trailers?|tractors?';
     // Our own appliances ("we have two trucks on scene") are not vehicles involved in the crash
     const tv = t.replace(/\b(?:we(?:'ve| have)(?: got)?|we(?:'re| are) (?:with|using)|our|crews? (?:has|have)|brigade has)\s+(?:\w+\s+){0,2}?(?:fire\s+)?(?:trucks?|appliances?|tankers?|pumps?)\b/gi, ' ');
@@ -255,10 +268,11 @@ function extract(raw, type) {
   else if ((m = L(new RegExp('\\b(' + COUNT + '|a|an|single)\\s+(?:(?:people|persons|guys|blokes)\\s+)?(?:patients?|casualt(?:y|ies)|injured|hurt)\\b', 'gi')))) {
     const w = m[1].toLowerCase(); o.patients = /^(?:a|an|single)$/.test(w) ? '1' : w;
   }
-  if ((m = L(/\bambulance\s+(?:is\s+|has\s+)?(?:been\s+)?(on scene|en route|enroute|on route|on the way|coming|responding|requested|arrived|here)\b/gi))) {
-    const w = m[1].toLowerCase();
-    o.ambulance = /^(?:on scene|arrived|here)$/.test(w) ? 'on scene' : w === 'requested' ? 'requested' : 'en route';
-  }
+  // "ambulance en route", "amb in attendance", "police and ambo on scene"
+  const SVC = '[^.;]{0,20}?\\b(on scene|en route|enroute|on route|on the way|coming|responding|requested|arrived|here|in attendance|attending)\\b';
+  const svcWord = w => /^(?:on scene|arrived|here|in attendance|attending)$/.test(w) ? 'on scene' : w === 'requested' ? 'requested' : 'en route';
+  if ((m = L(new RegExp('\\b(?:ambulance|ambo|amb)\\b' + SVC, 'gi')))) o.ambulance = svcWord(m[1].toLowerCase());
+  if ((m = L(new RegExp('\\bpolice\\b' + SVC, 'gi')))) o.police = svcWord(m[1].toLowerCase());
   if (!o.patients && type === 'medical' && /\b(?:bloke|fella|fellow|guy|man|woman|lady|girl|boy|baby|toddler|teenager|child|kid|someone|somebody|patient|person|elderly)\b/i.test(t)) o.patients = '1';
 
   // Crew actions by incident type

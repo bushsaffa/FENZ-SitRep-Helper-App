@@ -93,11 +93,13 @@ const ACT = {
   ],
   medical: [
     [FRT, 'first response treatment'],
-    [CPR, 'CPR']
+    [CPR, 'CPR'],
+    [/\blift(?:ing)?\s+assist\b|\bassist(?:ing)?\s+(?:the\s+)?(?:ambulance|amb|ambo)\b|\bwith (?:a |the )?lift\b/i, 'lift assist']
   ]
 };
 const EQ = {
-  vegetation: 'high[\\s-]?pressure\\s+lines?|hose\\s?lines?|hoses?|hose reels?|knapsacks?|backpack pumps?|hand tools?|pumps?|tankers?|blowers?|dozers?|rakes?|beaters?|drip torch(?:es)?',
+  carfire: 'high[\\s-]?pressure\\s+(?:deliver(?:y|ies)|lines?)|low[\\s-]?pressure\\s+(?:deliver(?:y|ies)|lines?)|hpd|hose\\s?lines?|hoses?|hose reels?',
+  vegetation: 'deliver(?:y|ies)|high[\\s-]?pressure\\s+lines?|hose\\s?lines?|hoses?|hose reels?|knapsacks?|backpack pumps?|hand tools?|pumps?|tankers?|blowers?|dozers?|rakes?|beaters?|drip torch(?:es)?',
   structure: 'breathing apparatus|ba sets?|thermal imaging cameras?|ladders?|hose\\s?lines?|hoses?|positive pressure (?:fans?|ventilation)|ventilation fans?',
   mva: 'hydraulic (?:rescue )?tools?|cutters?|spreaders?|rams?|stabili[sz]ation struts?|struts?|chocks?|rescue tools?',
   medical: ''

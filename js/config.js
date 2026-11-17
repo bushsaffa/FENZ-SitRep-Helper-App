@@ -9,13 +9,13 @@ const SLOTS = {
   length:     { label: 'Fire length (metres)' },
   width:      { label: 'Fire width (metres)' },
   area:       { label: 'Area (hectares), if not length by width' },
-  fuel:       { label: 'Fuel', opts: ['Grass', 'Scrub', 'Forestry', 'Hedge'], multi: true },
-  terrain:    { label: 'Terrain', opts: ['Flat', 'Rolling', 'Steep'] },
-  behav:      { label: 'Fire behaviour', opts: ['Low', 'Moderate', 'High', 'Extreme'] },
+  fuel:       { label: 'Fuel', opts: ['Grass', 'Scrub', 'Forestry', 'Hedge', 'Shelter belt', 'Native bush'], multi: true },
+  terrain:    { label: 'Terrain', opts: ['Flat', 'Rolling', 'Hilly', 'Steep'] },
+  behav:      { label: 'Fire behaviour', opts: ['Low', 'Moderate', 'High', 'Extreme', 'Crowning'] },
   ros:        { label: 'Rate of spread', opts: ['Slow', 'Moderate', 'Rapid'] },
   flameh:     { label: 'Flame height (metres)' },
   winddir:    { label: 'Wind from the...', opts: ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest', 'West', 'Northwest'] },
-  windspeed:  { label: 'Wind speed (km/h)', opts: ['10', '20', '30', '40', '50'] },
+  windspeed:  { label: 'Wind strength or speed (km/h)', opts: ['Nil', 'Light', 'Moderate', 'Strong', '10', '20', '30', '40', '50'] },
   local:      { label: 'Local weather factors (gusting, wind change, temperature...)' },
   status:     { label: 'Fire control', opts: ['Under control', 'Not under control'] },
   contain:    { label: 'Fire containment', opts: ['Contained', 'Not contained'] },
@@ -51,7 +51,10 @@ const SLOTS = {
   vehpos:     { label: 'Vehicle position and damage', opts: ['Off the roadway', 'Resting on its side', 'Resting on its roof', 'Blocking the road'], multi: true },
   occcount:   { label: 'Number of occupants', opts: ['1', '2', '3', '4'] },
   patients:   { label: 'Number of patients', opts: ['None', '1', '2', '3'] },
-  ambulance:  { label: 'Ambulance', opts: ['On scene', 'En route', 'Requested'] }
+  ambulance:  { label: 'Ambulance', opts: ['On scene', 'En route', 'Requested'] },
+  police:     { label: 'Police', opts: ['On scene', 'En route', 'Requested'] },
+  // car fire
+  rego:       { label: 'Registration number (Police use this to trace the owner)' }
 };
 
 // Per-incident changes to labels and chip options
@@ -65,6 +68,15 @@ const OVR = {
     patients:  { label: 'Number of casualties' },
     safety:    { opts: ['None', 'Structural collapse', 'Fatigue'] }
   },
+  carfire: {
+    vehicles:  { label: 'Vehicles on fire' },
+    strcond:   { label: 'Fire conditions', opts: ['Smoke showing', 'Flames showing', 'Well involved', 'Fully involved'] },
+    threat:    { label: 'Exposures at risk (structures, vegetation, other vehicles)', opts: ['None', 'Structure', 'Vegetation', 'Other vehicles'] },
+    hazards:   { opts: ['None', 'Fuel leakage', 'Gas supply', 'Overhead lines', 'Smoke', 'Traffic'] },
+    resources: { opts: ['None', 'Additional appliance', 'Police', 'Tow'] },
+    equipment: { label: 'Equipment in use', opts: ['High pressure delivery', 'Low pressure delivery'], multi: true },
+    safety:    { opts: ['None', 'Traffic', 'Fatigue'] }
+  },
   mva: {
     hazards:   { opts: ['None', 'Vehicle instability', 'Fuel leakage', 'Undeployed airbags', 'Downed power lines', 'Traffic'] },
     resources: { opts: ['None', 'Additional appliance', 'Ambulance', 'Police', 'Rescue unit'] },
@@ -75,7 +87,7 @@ const OVR = {
   medical: {
     hazards:   { opts: ['None', 'Traffic', 'Electrical hazard', 'Hazardous materials'] },
     resources: { opts: ['None', 'Ambulance', 'Police', 'Additional appliance'] },
-    actions:   { opts: ['First response treatment', 'CPR'] },
+    actions:   { opts: ['First response treatment', 'CPR', 'Lift assist'] },
     safety:    { opts: ['None', 'Fatigue'] }
   }
 };
@@ -93,8 +105,8 @@ const TYPES = {
       ['Actions', ['personnel', 'equipment', 'control', 'crewpos', 'supprob', 'ctrlprob']],
       ['Needs', ['resources', 'crewcond', 'safety', 'crewstatus']]
     ],
-    vital: ['location', 'length', 'width', 'fuel', 'status', 'threat', 'winddir', 'resources'],
-    alt: { length: ['area'], width: ['area'], status: ['contain'] }   // a vital field is not "missing" if one of these is given instead (control OR containment is enough)
+    vital: ['length', 'width', 'fuel', 'terrain', 'status', 'threat', 'winddir', 'equipment', 'resources'],
+    alt: { length: ['area'], width: ['area'], status: ['contain'], winddir: ['windspeed'] }   // a vital field is not "missing" if one of these is given instead (control OR containment is enough)
   },
   structure: {
     label: 'STRUCTURE', name: 'Structure', pat: true,
@@ -105,17 +117,27 @@ const TYPES = {
       ['Actions', ['personnel', 'mode', 'hoselines', 'actions', 'equipment', 'crewpos']],
       ['Needs', ['resources', 'crewcond', 'safety', 'crewstatus']]
     ],
-    vital: ['location', 'floors', 'strtype', 'strcond', 'occupants', 'patients', 'threat', 'resources']
+    vital: ['floors', 'strtype', 'blength', 'bwidth', 'strcond', 'occupants', 'patients', 'threat', 'hoselines', 'mode', 'resources']
+  },
+  carfire: {
+    label: 'CAR FIRE', name: 'Car fire', pat: false,
+    groups: [
+      ['Who and where', ['role', 'location']],
+      ['Fire', ['vehicles', 'strcond', 'rego', 'threat', 'hazards']],
+      ['Actions', ['personnel', 'equipment', 'crewpos']],
+      ['Needs', ['resources', 'crewcond', 'safety', 'crewstatus']]
+    ],
+    vital: ['strcond', 'equipment', 'rego']
   },
   mva: {
-    label: 'MVA', name: 'MVA', pat: true,
+    label: 'MVC', name: 'MVC', pat: true,
     groups: [
       ['Who and where', ['role', 'location', 'landmark']],
       ['Conditions', ['vehicles', 'vehpos', 'occcount', 'patients', 'hazards']],
-      ['Actions', ['personnel', 'actions', 'equipment', 'crewpos', 'ambulance']],
+      ['Actions', ['personnel', 'actions', 'equipment', 'crewpos', 'ambulance', 'police']],
       ['Needs', ['resources', 'crewcond', 'safety', 'crewstatus']]
     ],
-    vital: ['location', 'vehicles', 'patients', 'hazards', 'resources']
+    vital: ['vehicles', 'vehpos', 'patients', 'actions', 'ambulance', 'police', 'resources']
   },
   medical: {
     label: 'MEDICAL', name: 'Medical', pat: true,
@@ -125,7 +147,7 @@ const TYPES = {
       ['Actions', ['personnel', 'actions', 'ambulance', 'crewpos']],
       ['Needs', ['resources', 'crewcond', 'safety', 'crewstatus']]
     ],
-    vital: ['location', 'patients']
+    vital: ['patients', 'actions']
   }
 };
 const idsFor = t => TYPES[t].groups.flatMap(g => g[1]);

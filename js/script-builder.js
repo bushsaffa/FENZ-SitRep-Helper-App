@@ -1,8 +1,17 @@
-/* script-builder.js: one template per incident, only says what it was told */
+/* script-builder.js: one template per incident, only says what it was told.
+   Output is one short radio call in the FENZ style:
+   "FireCom – <callsign> – <role> – <key points, comma separated>. <Needs>." */
 
 const PSTAT = {
   'status zero': 'Status Zero, deceased', 'status one': 'Status One, critical', 'status two': 'Status Two, serious',
   'status three': 'Status Three, moderate', 'status four': 'Status Four, minor'
+};
+// How a crew action is said on the radio. Anything not listed is said as "undertaking <action>".
+const ACTTXT = {
+  'cpr': 'CPR in progress',
+  'first response treatment': 'providing first response treatment',
+  'traffic management': 'traffic control',
+  'lift assist': 'assisting ambulance with lift'
 };
 
 function buildScript(type, g, pats) {
@@ -12,32 +21,37 @@ function buildScript(type, g, pats) {
   const its = id => splitItems(v(id)).filter(x => x.toLowerCase() !== 'nil');
   const lst = id => joinList(its(id).map(fmt));
   const cs = v('callsign') || '[callsign]';
-  const out = [];
-  const add = s => { if (s) out.push(s); };
+  const main = [], extra = [];
+  const put = s => { if (s) main.push(s); };                       // a key point, joined with commas
+  const say = s => { if (s) extra.push(cap(s) + '.'); };           // a sentence of its own
   const prep = s => /^(?:at|on|in|along|near|by|behind|ahead|within|adjacent|beside|above|below|across)\b/i.test(s) ? s : 'at ' + s;
   const loc = v('location');
 
-  // Shared lines
-  const hazardsLine = () => nl('hazards') ? 'No hazards identified at this time.' : has('hazards') ? 'Current hazards include ' + lst('hazards') + '.' : '';
-  const probLine = (id, what) => nl(id) ? 'No ' + what + ' problems.' : has(id) ? cap(what) + ' problems include ' + fmt(v(id)) + '.' : '';
-  const posLine = () => has('crewpos') ? 'Crew is positioned ' + prep(v('crewpos')) + '.' : '';
-  const crewOf = () => has('personnel') ? 'Crew of ' + numw(v('personnel')) + '.' : '';
-  const equipLine = () => has('equipment') ? 'Equipment in use includes ' + lst('equipment') + '.' : '';
+  // Shared key points
+  const wherePart = () => put(loc ? 'at ' + loc : '');
+  const hazardsPart = () => nl('hazards') ? 'no hazards' : has('hazards') ? 'hazards include ' + lst('hazards') : '';
+  const probPart = (id, what) => nl(id) ? 'no ' + what + ' problems' : has(id) ? what + ' problems include ' + fmt(v(id)) : '';
+  const exposurePart = () => nl('threat') ? 'no exposures at risk' : has('threat') ? 'exposures at risk include ' + lst('threat') : '';
+  const posPart = () => has('crewpos') ? 'crew positioned ' + prep(v('crewpos')) : '';
+  // "crew of four using high pressure delivery"
+  const equipPart = () => {
+    const c = has('personnel') ? 'crew of ' + numw(v('personnel')) : '', e = lst('equipment');
+    return c && e ? c + ' using ' + e : e ? 'using ' + e : c;
+  };
   const tail = () => {
-    add(hazardsLine());
-    add(probLine('supprob', 'suppression'));
-    add(probLine('ctrlprob', 'control'));
-    add(has('crewcond') ? 'Crew and equipment condition is ' + lst('crewcond') + '.' : '');
-    add(nl('safety') ? 'No safety concerns.' : has('safety') ? 'Safety concerns include ' + lst('safety') + '.' : '');
-    add(nl('resources') ? 'No additional resources required.' : has('resources') ? 'We require ' + lst('resources') + '.' : '');
+    put(hazardsPart());
+    put(probPart('supprob', 'suppression'));
+    put(probPart('ctrlprob', 'control'));
+    put(has('crewcond') ? 'crew and equipment condition is ' + lst('crewcond') : '');
+    put(nl('safety') ? 'no safety concerns' : has('safety') ? 'safety concerns include ' + lst('safety') : '');
     const s = v('crewstatus').toLowerCase();
-    add(!s ? '' : s === 'safety maintained' ? 'Crew safety maintained.' : 'Crew is ' + s + '.');
-    add('Further SITREP to follow.');
-    add(cs + ' out.');
+    put(!s ? '' : s === 'safety maintained' ? 'crew safety maintained' : 'crew is ' + s);
+    // Needs go last, as their own sentence
+    say(nl('resources') ? 'No additional resources required' : has('resources') ? 'Requesting ' + lst('resources') : '');
   };
   // Each patient is reported separately, with their own status, condition and injuries
-  const patientLines = () => {
-    if (nl('patients')) { add('There are no patients.'); return; }
+  const patientParts = () => {
+    if (nl('patients')) { put('no patients'); return; }
     const info = p => [
       p.desc,
       p.status && (PSTAT[p.status.toLowerCase()] || cap(p.status)),
@@ -46,45 +60,54 @@ function buildScript(type, g, pats) {
       p.trapped && (p.trapped === 'trapped' ? 'currently trapped' : 'not trapped')
     ].filter(Boolean);
     if (!pats || !pats.length) return;
-    if (pats.length === 1) { const a = info(pats[0]); add('We have one patient' + (a.length ? ', ' + a.join(', ') : '') + '.'); return; }
-    add('We have ' + numw(String(pats.length)) + ' patients.');
-    pats.forEach((p, i) => { const a = info(p); if (a.length) add('Patient ' + numw(String(i + 1)) + ', ' + a.join(', ') + '.'); });
+    if (pats.length === 1) { const a = info(pats[0]); put('one patient' + (a.length ? ', ' + a.join(', ') : '')); return; }
+    put(numw(String(pats.length)) + ' patients');
+    pats.forEach((p, i) => { const a = info(p); if (a.length) say('Patient ' + numw(String(i + 1)) + ', ' + a.join(', ')); });
   };
-  // Crew actions: treatment is always reported "within training and operational guidelines"
   const actionParts = () => {
-    const a = its('actions');
-    return { treat: a.some(x => /first response treatment/i.test(x)), rest: a.filter(x => !/first response treatment/i.test(x)) };
+    const mapped = [], rest = [];
+    its('actions').forEach(x => { const k = x.toLowerCase(); if (ACTTXT[k]) mapped.push(ACTTXT[k]); else rest.push(x); });
+    mapped.forEach(put);
+    if (rest.length) put('undertaking ' + joinList(rest));
   };
-  const actionLines = () => {
-    const { treat, rest } = actionParts();
-    if (treat) add('Crew is providing first response treatment within training and operational guidelines.');
-    if (rest.length) add('Crew is undertaking ' + joinList(rest) + '.');
+  // Ambulance and police: "police and ambulance on scene" when they agree
+  const servicesParts = () => {
+    const a = v('ambulance').toLowerCase(), p = v('police').toLowerCase();
+    if (a && p && a === p) { put('police and ambulance ' + a); return; }
+    if (p) put('police ' + p);
+    if (a) put('ambulance ' + a);
   };
 
-  add('FireCom, this is ' + cs + (v('role') ? ', ' + title(v('role')) : '') + ', SITREP.');
+  const role = v('role') ? title(v('role')) : '';
 
   if (type === 'vegetation') {
-    const dist = v('dist'), lmk = v('landmark');
-    // A distance with no landmark is kept, with a visible placeholder (like [callsign]) so it can't go out half-said
-    const near = lmk ? (dist ? 'approximately ' + dist + ' from ' + lmk : 'near ' + lmk) : dist ? 'approximately ' + dist + ' from [landmark]' : '';
-    const where = [loc && 'located at ' + loc, near].filter(Boolean).join(', ');
-    add('We have a vegetation fire' + (where ? ' ' + where : '') + '.');
-    add(has('mapref') ? 'Map reference ' + v('mapref') + '.' : '');
-
+    // Fire: fuel and size ("fire in forestry 50x50m")
     const Le = v('length'), W = v('width'), area = v('area'), fuel = lst('fuel'), terr = v('terrain');
-    const dims = (Le && W) ? Le + ' by ' + W + ' metres' : '';
-    const sz = dims ? 'approximately ' + dims + (area ? ', or ' + area + ' hectares' : '') : area ? 'approximately ' + area + ' hectares' : '';
-    const inv = fuel ? 'involving ' + fuel + ' fuel' : '', tt = terr ? 'on ' + terr + ' terrain' : '';
-    if (sz) add('The fire is ' + sz + (inv ? ', ' + inv : '') + (tt ? ' ' + tt : '') + '.');
-    else if (fuel) add('The fire involves ' + fuel + ' fuel' + (tt ? ' ' + tt : '') + '.');
-    else if (terr) add('The fire is on ' + terr + ' terrain.');
+    let base = fuel ? 'fire in ' + fuel : 'vegetation fire';
+    if (Le && W) base += ' ' + Le + 'x' + W + 'm' + (area ? ', ' + area + ' hectares' : '');
+    else if (area) base += ', approximately ' + area + ' hectares';
+    put(base);
+    wherePart();
+    // A distance with no landmark is kept, with a visible placeholder (like [callsign]) so it can't go out half-said
+    const dist = v('dist'), lmk = v('landmark');
+    put(lmk ? (dist ? 'approximately ' + dist + ' from ' + lmk : 'near ' + lmk) : dist ? 'approximately ' + dist + ' from [landmark]' : '');
+    put(has('mapref') ? 'map reference ' + v('mapref') : '');
+    put(terr ? terr + ' terrain' : '');
+    const acc = v('access');
+    put(acc ? 'access ' + (/^(?:via|by|on|from|through|along|off|across)\b/i.test(acc) ? '' : 'via ') + acc : '');
 
+    // Fire behaviour and wind
     const wd = v('winddir'), ws = v('windspeed'), beh = v('behav');
-    const wind = wd ? 'wind from the ' + wd + (ws ? ' at approximately ' + ws + ' km/h' : '') : ws ? 'wind speed approximately ' + ws + ' km/h' : '';
-    add(beh ? 'Fire behaviour is ' + beh + (wind ? ', with ' + wind : '') + '.' : wind ? cap(wind) + '.' : '');
-    const rf = [has('ros') && 'rate of spread is ' + v('ros'), has('flameh') && 'flame height is approximately ' + v('flameh') + ' metres'].filter(Boolean);
-    add(rf.length ? cap(rf.join(' and ')) + '.' : '');
-    add(has('local') ? 'Local conditions include ' + lst('local') + '.' : '');
+    put(beh ? (beh.toLowerCase() === 'crowning' ? 'currently crowning' : beh + ' fire behaviour') : '');
+    const wnum = /^\d+(?:\.\d+)?$/.test(ws);
+    let wind = '';
+    if (ws && !wnum) wind = ws + ' wind' + (wd && !/^(?:nil|calm)$/i.test(ws) ? ' from the ' + wd : '');
+    else if (wd) wind = 'wind from the ' + wd + (ws ? ' at approximately ' + ws + ' km/h' : '');
+    else if (ws) wind = 'wind speed approximately ' + ws + ' km/h';
+    put(wind);
+    put(has('ros') ? 'rate of spread is ' + v('ros') : '');
+    put(has('flameh') ? 'flame height approximately ' + v('flameh') + ' metres' : '');
+    put(has('local') ? 'local conditions include ' + lst('local') : '');
 
     // Control and containment are separate: "not under control but contained", "under control and contained",
     // "not under control and not contained"... "but" when one is good news and the other is not, "and" when they agree.
@@ -92,70 +115,82 @@ function buildScript(type, g, pats) {
     const spot = sp ? ((sp === 'no' || sp === 'nil') ? 'no spot fires' : numw(sp) + ' spot fire' + pl(sp)) + ' observed' : '';
     const bad = x => /^not\b/.test(x);
     const state = ctl && con ? ctl + (bad(ctl) === bad(con) ? ' and ' : ' but ') + con : ctl || con;
-    add(state ? 'The fire is currently ' + state + (spot ? ', with ' + spot : '') + '.' : spot ? cap(spot) + '.' : '');
+    put(state ? 'fire is ' + state : '');
+    put(spot);
 
-    add(nl('threat') ? 'There is no immediate threat to property or other values.' : has('threat') ? 'Values at risk include ' + lst('threat') + '.' : '');
-    const acc = v('access');
-    add(acc ? 'Access is ' + (/^(?:via|by|on|from|through|along|off|across)\b/i.test(acc) ? '' : 'via ') + acc + '.' : '');
-
-    const p = v('personnel'), eq = lst('equipment');
-    if (p) add('Crew is deploying ' + numw(p) + ' personnel' + (eq ? ' utilising ' + eq : '') + '.');
-    else if (eq) add('Crew is utilising ' + eq + '.');
-    add(posLine());
-    add(has('control') ? 'We are establishing ' + lst('control') + ' and working to contain the fire.' : '');
+    put(exposurePart());
+    put(equipPart());
+    put(posPart());
+    put(has('control') ? 'establishing ' + lst('control') + ' and working to contain the fire' : '');
     tail();
   }
 
   else if (type === 'structure') {
+    // HAULET: Height, Area, Used as, Location of fire, Equipment, Tactical mode
     const bld = [v('floors'), v('strtype')].filter(Boolean).join(' ');
-    add('We are on scene' + (loc ? ' at ' + loc : '') + ' with a structural fire' + (bld ? ' involving ' + an(bld) : '') + '.');
-    add(v('blength') && v('bwidth') ? 'Building area is approximately ' + v('blength') + ' by ' + v('bwidth') + ' metres.' : '');
-    add(has('flocation') ? 'Fire location is ' + v('flocation') + '.' : '');
+    put('structure fire' + (bld ? ' involving ' + an(bld) : ''));
+    wherePart();
     const c = v('strcond').toLowerCase();
-    add(c === 'fully involved' ? 'The structure is fully involved.' : c === 'well involved' ? 'The fire is well involved.' : c ? 'We have ' + c + '.' : '');
-    add(has('smokefrom') ? 'Smoke is issuing from ' + v('smokefrom') + '.' : '');
-    add(has('spread') ? 'The fire is currently ' + v('spread') + '.' : '');
+    put(c);
+    put(has('flocation') ? 'fire in ' + v('flocation') : '');
+    put(has('smokefrom') ? 'smoke issuing from ' + v('smokefrom') : '');
+    put(has('spread') ? 'fire ' + v('spread') : '');
+    put(v('blength') && v('bwidth') ? v('blength') + 'x' + v('bwidth') + 'm' : '');
     const oc = v('occupants').toLowerCase();
-    add(oc === 'nil' ? 'There are no occupants.' : oc ? 'Occupant status is ' + oc + '.' : '');
-    patientLines();
-    add(nl('threat') ? 'No exposures are threatened.' : has('threat') ? 'The fire is threatening ' + lst('threat') + '.' : '');
-    add(crewOf());
-    const { treat, rest } = actionParts();
-    const parts = [];
-    if (has('mode')) parts.push('establishing ' + v('mode') + ' operations');
-    if (has('hoselines')) parts.push('deploying ' + numw(v('hoselines')) + ' hose line' + pl(v('hoselines')));
-    if (rest.length) parts.push('undertaking ' + joinList(rest));
-    add(parts.length ? 'Crew is ' + joinList(parts) + '.' : '');
-    if (treat) add('Crew is providing first response treatment within training and operational guidelines.');
-    add(equipLine());
-    add(posLine());
+    put(oc === 'nil' ? 'no occupants' : oc);
+    patientParts();
+    put(exposurePart());
+    put(has('hoselines') ? numw(v('hoselines')) + ' hose line' + pl(v('hoselines')) + ' deployed' : '');
+    put(equipPart());
+    actionParts();
+    put(has('mode') ? v('mode').toLowerCase() + ' mode' : '');
+    put(posPart());
+    tail();
+  }
+
+  else if (type === 'carfire') {
+    const veh = v('vehicles');
+    put(veh ? numw(veh) + ' vehicle fire' + pl(veh) : 'vehicle fire');
+    wherePart();
+    put(v('strcond').toLowerCase());
+    put(has('rego') ? 'registration number ' + v('rego') : '');
+    put(exposurePart());
+    put(equipPart());
+    put(posPart());
     tail();
   }
 
   else if (type === 'mva') {
     const veh = v('vehicles'), lmk = v('landmark'), vp = lst('vehpos');
-    let hd = veh ? cap(numw(veh)) + ' vehicle MVA' : 'Motor vehicle accident';   // (not "head": that is a helper in helpers.js)
-    hd += (loc ? ' at ' + loc : '') + (lmk ? ', near ' + lmk : '');
-    if (vp) hd += ', ' + (veh && !isOne(veh) ? 'vehicles ' + vp.replace(/\bits\b/g, 'their') : 'vehicle ' + vp);
-    add(hd + '.');
-    add(has('occcount') ? cap(numw(v('occcount'))) + ' occupant' + pl(v('occcount')) + ' identified.' : '');
-    patientLines();
-    add(crewOf());
-    actionLines();
-    add(equipLine());
-    add(posLine());
-    add(has('ambulance') ? 'Ambulance is ' + v('ambulance') + '.' : '');
+    put(veh ? numw(veh) + ' vehicle' + pl(veh) + ' involved' : 'MVC');
+    wherePart();
+    put(lmk ? 'near ' + lmk : '');
+    if (vp) put((veh && !isOne(veh) ? 'vehicles ' + vp.replace(/\bits\b/g, 'their') : 'vehicle ' + vp));
+    put(has('occcount') ? numw(v('occcount')) + ' occupant' + pl(v('occcount')) : '');
+    // Entrapment summary, so FireCom can decide on a second rescue tender
+    if (pats && pats.length) {
+      const tr = pats.filter(p => p.trapped === 'trapped').length, nt = pats.filter(p => p.trapped === 'not trapped').length;
+      put(tr ? numw(String(tr)) + ' person' + pl(String(tr)) + ' trapped' : nt === pats.length ? 'no persons trapped' : '');
+    }
+    patientParts();
+    actionParts();
+    put(equipPart());
+    put(posPart());
+    servicesParts();
     tail();
   }
 
   else if (type === 'medical') {
-    add('We have a medical incident' + (loc ? ' at ' + loc : '') + '.');
-    patientLines();
-    add(crewOf());
-    actionLines();
-    add(posLine());
-    add(has('ambulance') ? 'Ambulance is ' + v('ambulance') + '.' : '');
+    if (!nl('patients') && !(pats && pats.length)) put('medical incident');
+    wherePart();
+    patientParts();
+    put(has('personnel') ? 'crew of ' + numw(v('personnel')) : '');
+    actionParts();
+    servicesParts();
+    put(posPart());
     tail();
   }
-  return out.map(cap);
+
+  const head = ['FireCom', cs, role].filter(Boolean).join(' – ');
+  return [head + (main.length ? ' – ' + main.join(', ') : '') + '.' + (extra.length ? ' ' + extra.join(' ') : '')];
 }
